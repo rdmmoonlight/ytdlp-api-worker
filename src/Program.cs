@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -12,16 +11,14 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        Console.WriteLine("=== MD to OneNote Uploader (User Context / RefreshToken Mode) ===");
+        Console.WriteLine("=== MD to OneNote Uploader (Device Code Flow) ===");
 
         string? clientId = Environment.GetEnvironmentVariable("AZURE_CLIENT_ID");
-        string? clientSecret = Environment.GetEnvironmentVariable("AZURE_CLIENT_SECRET");
-        string? refreshToken = Environment.GetEnvironmentVariable("AZURE_REFRESH_TOKEN");
         string markdownFolderPath = Environment.GetEnvironmentVariable("MD_FOLDER_PATH") ?? "./docs";
 
-        if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(refreshToken))
+        if (string.IsNullOrEmpty(clientId))
         {
-            Console.WriteLine("[Error] AZURE_CLIENT_ID dan AZURE_REFRESH_TOKEN wajib diisi!");
+            Console.WriteLine("[Error] AZURE_CLIENT_ID wajib diisi!");
             return;
         }
 
@@ -31,20 +28,37 @@ class Program
             return;
         }
 
-        // 1. Tukar Refresh Token menjadi Access Token
-        Console.WriteLine("Mendapatkan Access Token dari Microsoft Azure...");
-        string? accessToken = await GetAccessTokenAsync(clientId, clientSecret, refreshToken);
+        using var httpClient = new HttpClient();
 
-        if (string.IsNullOrEmpty(accessToken))
+        // 1. Minta Device Code dari Azure
+        Console.WriteLine("Memulai otorisasi akun Microsoft...");
+        var deviceCodeInfo = await RequestDeviceCodeAsync(httpClient, clientId);
+
+        if (deviceCodeInfo == null)
         {
-            Console.WriteLine("[Error] Gagal mendapatkan Access Token. Periksa kembali Client ID / Refresh Token.");
+            Console.WriteLine("[Error] Gagal mendapatkan Device Code dari Azure.");
             return;
         }
 
-        using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        Console.WriteLine("\n=======================================================");
+        Console.WriteLine($"1. Buka browser di HP/Laptop: {deviceCodeInfo.Value.VerificationUri}");
+        Console.WriteLine($"2. Masukkan Kode Ini: {deviceCodeInfo.Value.UserCode}");
+        Console.WriteLine("=======================================================\n");
 
+        // 2. Poll server Azure sampai user memasukkan kode di browser
+        string? accessToken = await PollForAccessTokenAsync(httpClient, clientId, deviceCodeInfo.Value.DeviceCode, deviceCodeInfo.Value.Interval);
+
+        if (string.IsNullOrEmpty(accessToken))
+        {
+            Console.WriteLine("[Error] Gagal mendapatkan Access Token / Otorisasi dibatalkan.");
+            return;
+        }
+
+        Console.WriteLine("\n[Berhasil] Otorisasi sukses! Memulai pengunggahan catatan...\n");
+
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+
         string[] mdFiles = Directory.GetFiles(markdownFolderPath, "*.md", SearchOption.AllDirectories);
 
         if (mdFiles.Length == 0)
@@ -100,41 +114,64 @@ class Program
         }
     }
 
-    /// <summary>
-    /// Helper method untuk menukar Refresh Token menjadi Access Token beserta diagnosa log
-    /// </summary>
-    private static async Task<string?> GetAccessTokenAsync(string clientId, string? clientSecret, string refreshToken)
+    private static async Task<(string DeviceCode, string UserCode, string VerificationUri, int Interval)?> RequestDeviceCodeAsync(HttpClient client, string clientId)
     {
-        using var client = new HttpClient();
-        var requestData = new Dictionary<string, string>
+        var data = new Dictionary<string, string>
         {
             { "client_id", clientId },
-            { "grant_type", "refresh_token" },
-            { "refresh_token", refreshToken },
-            { "scope", "offline_access Notes.ReadWrite" },
-            { "redirect_uri", "http://localhost" }
+            { "scope", "offline_access Notes.ReadWrite" }
         };
 
-        if (!string.IsNullOrEmpty(clientSecret))
-        {
-            requestData.Add("client_secret", clientSecret);
-        }
+        var response = await client.PostAsync("https://login.microsoftonline.com/common/oauth2/v2.0/devicecode", new FormUrlEncodedContent(data));
+        if (!response.IsSuccessStatusCode) return null;
 
-        var response = await client.PostAsync("https://login.microsoftonline.com/common/oauth2/v2.0/token", new FormUrlEncodedContent(requestData));
         var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
 
-        if (!response.IsSuccessStatusCode)
+        return (
+            root.GetProperty("device_code").GetString()!,
+            root.GetProperty("user_code").GetString()!,
+            root.GetProperty("verification_uri").GetString()!,
+            root.GetProperty("interval").GetInt32()
+        );
+    }
+
+    private static async Task<string?> PollForAccessTokenAsync(HttpClient client, string clientId, string deviceCode, int interval)
+    {
+        var data = new Dictionary<string, string>
         {
-            Console.WriteLine($"[Azure Error Detail] HTTP {(int)response.StatusCode}: {json}");
+            { "client_id", clientId },
+            { "grant_type", "urn:ietf:params:oauth:grant-type:device_code" },
+            { "device_code", deviceCode }
+        };
+
+        while (true)
+        {
+            await Task.Delay(interval * 1000);
+
+            var response = await client.PostAsync("https://login.microsoftonline.com/common/oauth2/v2.0/token", new FormUrlEncodedContent(data));
+            var json = await response.Content.ReadAsStringAsync();
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (response.IsSuccessStatusCode)
+            {
+                return root.GetProperty("access_token").GetString();
+            }
+
+            if (root.TryGetProperty("error", out var errorProp))
+            {
+                string error = errorProp.GetString()!;
+                if (error == "authorization_pending")
+                {
+                    continue; // Masih menunggu pengguna memasukkan kode di browser
+                }
+            }
+
+            Console.WriteLine($"[Error Device Login] {json}");
             return null;
         }
-
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.TryGetProperty("access_token", out var tokenProp))
-        {
-            return tokenProp.GetString();
-        }
-
-        return null;
     }
 }

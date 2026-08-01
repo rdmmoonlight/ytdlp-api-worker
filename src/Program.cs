@@ -1,10 +1,13 @@
 using System;
 using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using Azure.Identity;
 using Markdig;
 using Microsoft.Graph;
+using Microsoft.Kiota.Abstractions;
 
 class Program
 {
@@ -32,7 +35,7 @@ class Program
             return;
         }
 
-        // FIX ERROR 1: TenantId disalurkan via constructor ClientSecretCredential
+        // Autentikasi Non-Interaktif menggunakan ClientSecretCredential
         var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
         var graphClient = new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" });
 
@@ -71,15 +74,21 @@ class Program
   </body>
 </html>";
 
-                // FIX ERROR 2: Gunakan PostAsync langsung dengan stream & Content-Type text/html via RequestAdapter
-                using var stream = new MemoryStream(Encoding.UTF8.GetBytes(fullHtmlDocument));
-                
-                var requestInfo = graphClient.Users[targetUserId].Onenote.Pages.ToPostRequestInformation(
-                    stream,
-                    "text/html"
-                );
+                // PERBAIKAN: Buat RequestInformation secara eksplisit untuk mengirim payload HTML (text/html)
+                var requestInfo = new RequestInformation
+                {
+                    HttpMethod = Method.POST,
+                    UrlTemplate = "{+baseurl}/users/{user%2Did}/onenote/pages",
+                };
+                requestInfo.PathParameters.Add("baseurl", "https://graph.microsoft.com/v1.0");
+                requestInfo.PathParameters.Add("user%2Did", targetUserId);
 
+                using var stream = new MemoryStream(Encoding.UTF8.GetBytes(fullHtmlDocument));
+                requestInfo.SetStreamContent(stream, "text/html");
+
+                // Kirim request via RequestAdapter dari GraphClient
                 await graphClient.RequestAdapter.SendNoContentAsync(requestInfo);
+                
                 Console.WriteLine($"[Sukses] '{pageTitle}' berhasil diunggah.\n");
             }
             catch (Exception ex)

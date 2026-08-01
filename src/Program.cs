@@ -101,7 +101,7 @@ class Program
     }
 
     /// <summary>
-    /// Helper method untuk menukar Refresh Token menjadi Access Token
+    /// Helper method untuk menukar Refresh Token menjadi Access Token beserta diagnosa log
     /// </summary>
     private static async Task<string?> GetAccessTokenAsync(string clientId, string? clientSecret, string refreshToken)
     {
@@ -111,7 +111,8 @@ class Program
             { "client_id", clientId },
             { "grant_type", "refresh_token" },
             { "refresh_token", refreshToken },
-            { "scope", "offline_access Notes.ReadWrite" }
+            { "scope", "offline_access Notes.ReadWrite" },
+            { "redirect_uri", "http://localhost" }
         };
 
         if (!string.IsNullOrEmpty(clientSecret))
@@ -120,14 +121,15 @@ class Program
         }
 
         var response = await client.PostAsync("https://login.microsoftonline.com/common/oauth2/v2.0/token", new FormUrlEncodedContent(requestData));
+        var json = await response.Content.ReadAsStringAsync();
+
         if (!response.IsSuccessStatusCode)
         {
+            Console.WriteLine($"[Azure Error Detail] HTTP {(int)response.StatusCode}: {json}");
             return null;
         }
 
-        var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
-        
         if (doc.RootElement.TryGetProperty("access_token", out var tokenProp))
         {
             return tokenProp.GetString();

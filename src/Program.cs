@@ -38,7 +38,9 @@ class Program
         var graphClient = new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" });
 
         var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
-        string[] mdFiles = Directory.GetFiles(markdownFolderPath, "*.md", SearchOption.TopDirectoryOnly);
+
+        // REVISI 1: Gunakan SearchOption.AllDirectories untuk membaca file .md di dalam sub-folder
+        string[] mdFiles = Directory.GetFiles(markdownFolderPath, "*.md", SearchOption.AllDirectories);
 
         if (mdFiles.Length == 0)
         {
@@ -46,12 +48,15 @@ class Program
             return;
         }
 
-        Console.WriteLine($"Ditemukan {mdFiles.Length} file .md. Mengunggah ke OneNote user: {targetUserId}...\n");
+        Console.WriteLine($"Ditemukan {mdFiles.Length} file .md (termasuk di sub-folder). Mengunggah ke OneNote user: {targetUserId}...\n");
 
         foreach (var filePath in mdFiles)
         {
-            string fileName = Path.GetFileNameWithoutExtension(filePath);
-            Console.WriteLine($"Processing: {Path.GetFileName(filePath)}...");
+            // REVISI 2: Format judul menggunakan relative path (contoh: "folderA/subfolder/catatan")
+            string relativePath = Path.GetRelativePath(markdownFolderPath, filePath);
+            string pageTitle = Path.ChangeExtension(relativePath, null).Replace('\\', '/'); // Menghilangkan .md & merapikan separator
+
+            Console.WriteLine($"Processing: {relativePath}...");
 
             try
             {
@@ -61,7 +66,7 @@ class Program
                 string fullHtmlDocument = $@"<!DOCTYPE html>
 <html>
   <head>
-    <title>{fileName}</title>
+    <title>{pageTitle}</title>
     <meta name=""created"" content=""{DateTime.Now:yyyy-MM-ddTHH:mm:ssK}"" />
   </head>
   <body>
@@ -76,11 +81,11 @@ class Program
                 );
 
                 await graphClient.RequestAdapter.SendNoContentAsync(requestInfo);
-                Console.WriteLine($"[Sukses] '{fileName}' berhasil diunggah.\n");
+                Console.WriteLine($"[Sukses] '{pageTitle}' berhasil diunggah.\n");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Gagal] '{fileName}': {ex.Message}\n");
+                Console.WriteLine($"[Gagal] '{relativePath}': {ex.Message}\n");
             }
         }
     }

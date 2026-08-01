@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -66,16 +67,16 @@ class Program
                 string mdContent = await File.ReadAllTextAsync(filePath);
                 string htmlBody = Markdown.ToHtml(mdContent, pipeline);
 
-                string fullHtmlDocument = $@"
-
-  
-    {pageTitle}
-    
-  
-  
+                string fullHtmlDocument = $@"<!DOCTYPE html>
+<html>
+  <head>
+    <title>{pageTitle}</title>
+    <meta name=""created"" content=""{DateTime.Now:yyyy-MM-ddTHH:mm:ssK}"" />
+  </head>
+  <body>
     {htmlBody}
-  
-";
+  </body>
+</html>";
 
                 using var request = new HttpRequestMessage(HttpMethod.Post, "https://graph.microsoft.com/v1.0/me/onenote/pages");
                 request.Content = new StringContent(fullHtmlDocument, Encoding.UTF8, "text/html");
@@ -99,10 +100,13 @@ class Program
         }
     }
 
-    private static async Task GetAccessTokenAsync(string clientId, string? clientSecret, string refreshToken)
+    /// <summary>
+    /// Helper method untuk menukar Refresh Token menjadi Access Token
+    /// </summary>
+    private static async Task<string?> GetAccessTokenAsync(string clientId, string? clientSecret, string refreshToken)
     {
         using var client = new HttpClient();
-        var requestData = new System.Collections.Generic.Dictionary
+        var requestData = new Dictionary<string, string>
         {
             { "client_id", clientId },
             { "grant_type", "refresh_token" },
@@ -123,6 +127,12 @@ class Program
 
         var json = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(json);
-        return doc.RootElement.GetProperty("access_token").GetString();
+        
+        if (doc.RootElement.TryGetProperty("access_token", out var tokenProp))
+        {
+            return tokenProp.GetString();
+        }
+
+        return null;
     }
 }

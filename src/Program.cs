@@ -32,14 +32,12 @@ class Program
             return;
         }
 
-        // Autentikasi Non-Interaktif menggunakan ClientSecretCredential (App Permissions)
-        var options = new ClientSecretCredentialOptions { TenantId = tenantId };
-        var credential = new ClientSecretCredential(tenantId, clientId, clientSecret, options);
+        // FIX ERROR 1: TenantId disalurkan via constructor ClientSecretCredential
+        var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
         var graphClient = new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" });
 
         var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
 
-        // REVISI 1: Gunakan SearchOption.AllDirectories untuk membaca file .md di dalam sub-folder
         string[] mdFiles = Directory.GetFiles(markdownFolderPath, "*.md", SearchOption.AllDirectories);
 
         if (mdFiles.Length == 0)
@@ -48,13 +46,12 @@ class Program
             return;
         }
 
-        Console.WriteLine($"Ditemukan {mdFiles.Length} file .md (termasuk di sub-folder). Mengunggah ke OneNote user: {targetUserId}...\n");
+        Console.WriteLine($"Ditemukan {mdFiles.Length} file .md. Mengunggah ke OneNote user: {targetUserId}...\n");
 
         foreach (var filePath in mdFiles)
         {
-            // REVISI 2: Format judul menggunakan relative path (contoh: "folderA/subfolder/catatan")
             string relativePath = Path.GetRelativePath(markdownFolderPath, filePath);
-            string pageTitle = Path.ChangeExtension(relativePath, null).Replace('\\', '/'); // Menghilangkan .md & merapikan separator
+            string pageTitle = Path.ChangeExtension(relativePath, null).Replace('\\', '/');
 
             Console.WriteLine($"Processing: {relativePath}...");
 
@@ -74,10 +71,12 @@ class Program
   </body>
 </html>";
 
-                // Kirim ke OneNote milik spesifik User ID / Email
+                // FIX ERROR 2: Gunakan PostAsync langsung dengan stream & Content-Type text/html via RequestAdapter
+                using var stream = new MemoryStream(Encoding.UTF8.GetBytes(fullHtmlDocument));
+                
                 var requestInfo = graphClient.Users[targetUserId].Onenote.Pages.ToPostRequestInformation(
-                    new MemoryStream(Encoding.UTF8.GetBytes(fullHtmlDocument)),
-                    config => config.Headers.Add("Content-Type", "text/html")
+                    stream,
+                    "text/html"
                 );
 
                 await graphClient.RequestAdapter.SendNoContentAsync(requestInfo);

@@ -1,0 +1,31 @@
+name: Run MD to OneNote Uploader
+
+on:
+  push:
+    branches: [ main ] # Otomatis jalan saat ada push ke branch main
+  workflow_dispatch:   # Bisa dijalankan manual lewat tombol di GitHub
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 8
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore src/MdToOneNote.csproj
+
+    - name: Build & Run Uploader
+      env:
+        AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        AZURE_TARGET_USER_ID: ${{ secrets.AZURE_TARGET_USER_ID }}
+        MD_FOLDER_PATH: "./docs"
+      run: dotnet run --project src/MdToOneNote.csproj

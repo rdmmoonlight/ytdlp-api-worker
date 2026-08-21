@@ -1,0 +1,57 @@
+name: Lint & Auto-Fix
+
+on:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: lint-fix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-fix:
+    name: Code Formatting & Quality Check
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore Web Dependencies
+        run: |
+          if [ -f "apps/web/Hypen.csproj" ]; then 
+            dotnet restore apps/web/Hypen.csproj
+          fi
+
+      - name: Run Dotnet Format Fix
+        continue-on-error: true
+        run: |
+          if [ -f "apps/web/Hypen.csproj" ]; then 
+            dotnet format whitespace apps/web/Hypen.csproj --no-restore
+            dotnet format style apps/web/Hypen.csproj --no-restore --severity info
+          fi
+
+      - name: Revert Generated Files
+        run: |
+          git checkout -- **/obj/** **/bin/** 2>/dev/null || true
+
+      - name: Commit & Push Changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style(ci): auto-fix code style and linting [skip ci]"
+          branch: main
+          file_pattern: 'apps/**/*.cs apps/**/*.razor'
+          commit_user_name: "github-actions[bot]"
+          commit_user_email: "github-actions[bot]@users.noreply.github.com"
+          internal_git_options: '-c rebase.autoStash=true'

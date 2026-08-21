@@ -23,7 +23,7 @@ app.get('/health', (req, res) => {
 
 // 2. Stream Audio Download Endpoint
 app.post('/api/download/audio', (req, res) => {
-    const { url, proxy } = req.body;
+    const { url, proxy, useOauth } = req.body;
 
     if (!url) {
         return res.status(400).json({ error: 'URL tidak boleh kosong.' });
@@ -32,7 +32,7 @@ app.post('/api/download/audio', (req, res) => {
     // Normalisasi URL
     let cleanUrl = url.trim();
     if (cleanUrl.includes("music.youtube.com")) {
-        cleanUrl = cleanUrl.replace("music.youtube.com", "www.youtube.com");
+        cleanUrl = cleanUrl.Replace("music.youtube.com", "www.youtube.com");
     }
 
     // Set Header untuk Live Streaming Log ke C# / Postman
@@ -42,15 +42,16 @@ app.post('/api/download/audio', (req, res) => {
     const cookiePath = path.join(__dirname, 'cookies.txt');
     const alternativeCookiePath = '/app/cookies.txt';
 
-    // Argumen yt-dlp yang dioptimalkan untuk IP Datacenter
+    // Argumen yt-dlp: Menggunakan Rotasi Client TV / Android Creator
+    // Client ini memiliki proteksi IP Datacenter yang jauh lebih longgar
     const args = [
         '--no-warnings',
         '--no-cache-dir',
         '--newline',
         '--ignore-config',
         '--force-overwrites',
-        '--js-runtimes', 'deno', // Menggunakan Engine Deno untuk JS EJS Challenge
-        '--extractor-args', 'youtube:player_client=mweb,web_embedded,ios', // Rotasi Client Alternatif
+        '--js-runtimes', 'deno', // Engine Deno untuk EJS JS Challenge
+        '--extractor-args', 'youtube:player_client=tv,android_creator,tv_embedded', 
         '--add-metadata',
         '-x',
         '--audio-format', 'mp3',
@@ -60,7 +61,17 @@ app.post('/api/download/audio', (req, res) => {
 
     res.write(`[INIT] Memulai proses ekstraksi yt-dlp untuk: ${cleanUrl}\n`);
 
-    // Dukungan Proxy Opsional (jika dikirim dari C# / Environment / Request Body)
+    // =========================================================================
+    // SOLUSI 1 (PREPARED): OAuth2 Flow (Aktif jika "useOauth": true)
+    // =========================================================================
+    if (useOauth === true) {
+        res.write(`[INFO] Mengaktifkan otentikasi OAuth2...\n`);
+        args.push('--username', 'oauth2', '--password', '\'\'');
+    }
+
+    // =========================================================================
+    // SOLUSI 2 (PREPARED): Proxy Support (Aktif via Body Request / ENV)
+    // =========================================================================
     const activeProxy = proxy || process.env.YTDLP_PROXY;
     if (activeProxy) {
         res.write(`[INFO] Menggunakan Proxy: ${activeProxy}\n`);

@@ -33,26 +33,39 @@ app.post('/api/download/audio', (req, res) => {
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
 
-    const cookiePath = '/app/cookies.txt';
+    const cookiePath = path.join(__dirname, 'cookies.txt');
+    const alternativeCookiePath = '/app/cookies.txt';
+
+    // Argumen Dasar yt-dlp
     const args = [
         '--no-warnings',
         '--no-cache-dir',
         '--newline',
         '--ignore-config',
         '--force-overwrites',
+        '--js-runtimes', 'deno', // Menggunakan Deno JS Engine yang diinstall di Dockerfile
         '--add-metadata',
         '-x',
         '--audio-format', 'mp3',
         '--audio-quality', '0',
-        '-o', path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s'),
-        url
+        '-o', path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s')
     ];
 
+    res.write(`[INIT] Memulai proses ekstraksi yt-dlp untuk: ${url}\n`);
+
+    // Pengecekan Keberadaan Cookies
     if (fs.existsSync(cookiePath)) {
-        args.unshift('--cookies', cookiePath);
+        res.write(`[INFO] Menggunakan file cookies dari: ${cookiePath}\n`);
+        args.push('--cookies', cookiePath);
+    } else if (fs.existsSync(alternativeCookiePath)) {
+        res.write(`[INFO] Menggunakan file cookies dari: ${alternativeCookiePath}\n`);
+        args.push('--cookies', alternativeCookiePath);
+    } else {
+        res.write(`[WARNING] File cookies.txt TIDAK DITEMUKAN! IP Datacenter Render rawan diblokir YouTube.\n`);
     }
 
-    res.write(`[INIT] Memulai proses ekstraksi yt-dlp untuk: ${url}\n`);
+    // Tambahkan URL di akhir argumen
+    args.push(url);
 
     const ytdlp = spawn('yt-dlp', args);
 

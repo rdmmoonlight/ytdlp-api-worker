@@ -23,27 +23,34 @@ app.get('/health', (req, res) => {
 
 // 2. Stream Audio Download Endpoint
 app.post('/api/download/audio', (req, res) => {
-    const { url } = req.body;
+    const { url, proxy } = req.body;
 
     if (!url) {
         return res.status(400).json({ error: 'URL tidak boleh kosong.' });
     }
 
-    // Set Header untuk Server-Sent Events (SSE) / Live Text Stream ke C#
+    // Normalisasi URL
+    let cleanUrl = url.trim();
+    if (cleanUrl.includes("music.youtube.com")) {
+        cleanUrl = cleanUrl.replace("music.youtube.com", "www.youtube.com");
+    }
+
+    // Set Header untuk Live Streaming Log ke C# / Postman
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
 
     const cookiePath = path.join(__dirname, 'cookies.txt');
     const alternativeCookiePath = '/app/cookies.txt';
 
-    // Argumen Dasar yt-dlp
+    // Argumen yt-dlp yang dioptimalkan untuk IP Datacenter
     const args = [
         '--no-warnings',
         '--no-cache-dir',
         '--newline',
         '--ignore-config',
         '--force-overwrites',
-        '--js-runtimes', 'deno', // Menggunakan Deno JS Engine yang diinstall di Dockerfile
+        '--js-runtimes', 'deno', // Menggunakan Engine Deno untuk JS EJS Challenge
+        '--extractor-args', 'youtube:player_client=mweb,web_embedded,ios', // Rotasi Client Alternatif
         '--add-metadata',
         '-x',
         '--audio-format', 'mp3',
@@ -51,7 +58,14 @@ app.post('/api/download/audio', (req, res) => {
         '-o', path.join(DOWNLOAD_DIR, '%(title)s.%(ext)s')
     ];
 
-    res.write(`[INIT] Memulai proses ekstraksi yt-dlp untuk: ${url}\n`);
+    res.write(`[INIT] Memulai proses ekstraksi yt-dlp untuk: ${cleanUrl}\n`);
+
+    // Dukungan Proxy Opsional (jika dikirim dari C# / Environment / Request Body)
+    const activeProxy = proxy || process.env.YTDLP_PROXY;
+    if (activeProxy) {
+        res.write(`[INFO] Menggunakan Proxy: ${activeProxy}\n`);
+        args.push('--proxy', activeProxy);
+    }
 
     // Pengecekan Keberadaan Cookies
     if (fs.existsSync(cookiePath)) {
@@ -65,7 +79,7 @@ app.post('/api/download/audio', (req, res) => {
     }
 
     // Tambahkan URL di akhir argumen
-    args.push(url);
+    args.push(cleanUrl);
 
     const ytdlp = spawn('yt-dlp', args);
 

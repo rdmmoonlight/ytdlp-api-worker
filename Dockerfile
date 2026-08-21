@@ -2,7 +2,7 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install Python, FFmpeg, Curl, & Ca-certificates
+# Install System Dependencies (Python 3, FFmpeg, Curl, Ca-certificates, Unzip)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     ffmpeg \
@@ -11,26 +11,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Deno JS Runtime (Engine pendukung bypass bot YouTube)
+# Install Deno JS Runtime (Digunakan oleh --js-runtimes deno pada yt-dlp)
 RUN curl -fsSL https://deno.land/install.sh | sh \
     && mv /root/.deno/bin/deno /usr/local/bin/deno \
     && chmod a+rx /usr/local/bin/deno
 
-# Install Executable yt-dlp
+# Download biner yt-dlp terbaru, beri izin eksekusi, dan perbarui
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
     && yt-dlp -U
 
-# Install Node Dependencies
-COPY package.json ./
-RUN npm install --production
+# Install Dependencies Node.js
+COPY package*.json ./
+RUN npm ci --only=production
 
-# Copy Source Code Server
+# Copy Kode Sumber Application
 COPY server.js ./
 
-# Copy File Cookies (jika ada)
-COPY cookies.txt* /app/
-RUN if [ -f /app/cookies.txt ]; then chmod 644 /app/cookies.txt; fi
+# Copy File Cookies (Gunakan wildcard * agar build tidak error jika file cookies.txt tidak ada)
+COPY cookies.txt* ./
+RUN if [ -f cookies.txt ]; then chmod 644 cookies.txt; fi
 
 EXPOSE 5000
 

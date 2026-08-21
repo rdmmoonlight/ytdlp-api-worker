@@ -11,47 +11,41 @@ const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || '/app/downloads';
 app.use(cors());
 app.use(express.json());
 
-// Pastikan folder download tersedia
 if (!fs.existsSync(DOWNLOAD_DIR)) {
     fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 }
 
-// 1. Health Check Endpoint
 app.get('/health', (req, res) => {
     res.json({ status: 'OK', message: 'yt-dlp worker service is running.' });
 });
 
-// 2. Stream Audio Download Endpoint
 app.post('/api/download/audio', (req, res) => {
-    const { url, proxy, useOauth } = req.body;
+    const { url, proxy } = req.body;
 
     if (!url) {
         return res.status(400).json({ error: 'URL tidak boleh kosong.' });
     }
 
-    // Normalisasi URL
     let cleanUrl = url.trim();
     if (cleanUrl.includes("music.youtube.com")) {
-        cleanUrl = cleanUrl.Replace("music.youtube.com", "www.youtube.com");
+        cleanUrl = cleanUrl.replace("music.youtube.com", "www.youtube.com");
     }
 
-    // Set Header untuk Live Streaming Log ke C# / Postman
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
 
     const cookiePath = path.join(__dirname, 'cookies.txt');
     const alternativeCookiePath = '/app/cookies.txt';
 
-    // Argumen yt-dlp: Menggunakan Rotasi Client TV / Android Creator
-    // Client ini memiliki proteksi IP Datacenter yang jauh lebih longgar
+    // Argumen Dasar: Deno JS Runtime + Client Rotation (iOS/Android/Web)
     const args = [
         '--no-warnings',
         '--no-cache-dir',
         '--newline',
         '--ignore-config',
         '--force-overwrites',
-        '--js-runtimes', 'deno', // Engine Deno untuk EJS JS Challenge
-        '--extractor-args', 'youtube:player_client=tv,android_creator,tv_embedded', 
+        '--js-runtimes', 'deno',
+        '--extractor-args', 'youtube:player_client=ios,android,web',
         '--add-metadata',
         '-x',
         '--audio-format', 'mp3',
@@ -61,24 +55,14 @@ app.post('/api/download/audio', (req, res) => {
 
     res.write(`[INIT] Memulai proses ekstraksi yt-dlp untuk: ${cleanUrl}\n`);
 
-    // =========================================================================
-    // SOLUSI 1 (PREPARED): OAuth2 Flow (Aktif jika "useOauth": true)
-    // =========================================================================
-    if (useOauth === true) {
-        res.write(`[INFO] Mengaktifkan otentikasi OAuth2...\n`);
-        args.push('--username', 'oauth2', '--password', '\'\'');
-    }
-
-    // =========================================================================
-    // SOLUSI 2 (PREPARED): Proxy Support (Aktif via Body Request / ENV)
-    // =========================================================================
+    // Dukungan Proxy (Opsional)
     const activeProxy = proxy || process.env.YTDLP_PROXY;
     if (activeProxy) {
         res.write(`[INFO] Menggunakan Proxy: ${activeProxy}\n`);
         args.push('--proxy', activeProxy);
     }
 
-    // Pengecekan Keberadaan Cookies
+    // Pengecekan Cookies
     if (fs.existsSync(cookiePath)) {
         res.write(`[INFO] Menggunakan file cookies dari: ${cookiePath}\n`);
         args.push('--cookies', cookiePath);
@@ -86,10 +70,9 @@ app.post('/api/download/audio', (req, res) => {
         res.write(`[INFO] Menggunakan file cookies dari: ${alternativeCookiePath}\n`);
         args.push('--cookies', alternativeCookiePath);
     } else {
-        res.write(`[WARNING] File cookies.txt TIDAK DITEMUKAN! IP Datacenter Render rawan diblokir YouTube.\n`);
+        res.write(`[WARNING] File cookies.txt TIDAK DITEMUKAN!\n`);
     }
 
-    // Tambahkan URL di akhir argumen
     args.push(cleanUrl);
 
     const ytdlp = spawn('yt-dlp', args);
